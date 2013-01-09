@@ -42,7 +42,6 @@ my @crcTable = (
     0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
 );
 
-
 sub writeMagic {
     my $fd = shift;
 
@@ -153,7 +152,7 @@ sub writeChunk2 {
         print "Failed to send chunk.\n";
         return undef;
     }
-    if ( !( $response = readPacket($fd, 0.001) ) ) {
+    if ( !( $response = readPacket( $fd, 0.001 ) ) ) {
         return 1;
     }
 
@@ -226,7 +225,7 @@ sub uploadFile2 {
 
         #select(undef, undef, undef, 0.1);
     }
-    while ( $response = readPacket($fd, 2) ) {
+    while ( $response = readPacket( $fd, 2 ) ) {
         print "Got response: ", serialize($response), "\n";
     }
     return 1;
@@ -472,16 +471,16 @@ sub serial32 {
 }
 
 sub readPacket {
-    my $fd = shift;
+    my $fd      = shift;
     my $timeout = shift;
 
     my $rfhbits = "";
     my $byte;
 
-    if (defined($timeout)) {
+    if ( defined($timeout) ) {
         vec( $rfhbits, fileno($fd), 1 ) = 1;
-	return undef unless select( $rfhbits, undef, undef, $timeout ) >= 0;
-	return undef unless vec( $rfhbits, fileno($fd), 1 );
+        return undef unless select( $rfhbits, undef, undef, $timeout ) >= 0;
+        return undef unless vec( $rfhbits, fileno($fd), 1 );
     }
 
     my $retval = sysread( $fd, $byte, 1 );
@@ -551,7 +550,7 @@ sub doMagic2 {
     my $response;
     print "Sending MAGIC2...\n";
     writeMagic2($fd);
-    while ( $response = readPacket($fd, 2) ) {
+    while ( $response = readPacket( $fd, 2 ) ) {
         print "Got response: ", serialize($response), "\n";
     }
 }
@@ -561,7 +560,7 @@ sub doMagic3 {
     my $response;
     print "Sending MAGIC3...\n";
     writeMagic3($fd);
-    while ( $response = readPacket($fd, 2) ) {
+    while ( $response = readPacket( $fd, 2 ) ) {
         print "Got response: ", serialize($response), "\n";
     }
 }
@@ -644,7 +643,6 @@ sub doBootloader {
     print "Response: ", serialize($response), "\n";
 }
 
-
 #####
 ##### second stage cmds
 #####
@@ -721,8 +719,7 @@ sub doReset2 {
 ### main stages
 ###
 
-sub doStage1
-{
+sub doStage1 {
     my $retval;
     my $response;
     my ( $fd, $tty ) = setupTTY();
@@ -753,8 +750,7 @@ sub doStage1
     sleep(1);
 }
 
-sub doStage2
-{
+sub doStage2 {
     my $retval;
     my $response;
     my ( $fd, $tty ) = setupTTY();
