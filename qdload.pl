@@ -58,23 +58,8 @@ sub writeMagic {
     return 1;
 }
 
+
 sub writeMagic2 {
-    my $fd = shift;
-
-    return undef
-      if (
-        !sendPacket(
-            $fd,
-            deserialize(
-"01 51 43 4f 4d 20 66 61 73 74 20 64 6f 77 6e 6c 6f 61 64 20 70 72 6f 74 6f 63 6f 6c 20 68 6f 73 74 02 02 01"
-            )
-        )
-      );
-
-    return 1;
-}
-
-sub writeMagic3 {
     my $fd = shift;
 
     return undef
@@ -555,16 +540,6 @@ sub doMagic2 {
     }
 }
 
-sub doMagic3 {
-    my $fd = shift;
-    my $response;
-    print "Sending MAGIC3...\n";
-    writeMagic3($fd);
-    while ( $response = readPacket( $fd, 2 ) ) {
-        print "Got response: ", serialize($response), "\n";
-    }
-}
-
 sub doSoftwareVersion {
     my $fd = shift;
     my $response;
@@ -762,7 +737,7 @@ sub doStage2 {
 
     print "Using TTY: $tty\n";
 
-    doMagic3($fd);
+    doMagic2($fd);
 
     #closeFlush($fd);
     doSecureMode($fd);
