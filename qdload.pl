@@ -90,7 +90,7 @@ sub writeChunk {
     my @responseBytes = unpack( 'C*', $response );
     if ( scalar @responseBytes != 1 || $responseBytes[0] != 2 ) {
         print "Invalid Response: ", serialize($response), "\n";
-        exit 1;
+        return undef;
     }
     return 1;
 }
@@ -152,7 +152,10 @@ sub uploadFile {
           sprintf( '%.8x', $address ), "; ", length($restOfData),
           " bytes left.\n";
 
-        return undef if ( !writeChunk( $fd, $address, $chunk ) );
+        if ( !writeChunk( $fd, $address, $chunk ) ) {
+			print "uploadFile failed.\n";
+			exit 1;
+		}
 
         $address += length($chunk);
         $data = $restOfData;
@@ -582,13 +585,17 @@ sub doCloseFlush {
         print "Failed CloseFlush\n";
         exit 1;
     }
-    print "closeFlush send ok\n";
 
-    if ( !( $response = readPacket($fd) ) ) {
+    if ( !( $response = readPacket($fd, 2.0) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
-    print "Response: ", serialize($response), "\n";
+
+    my @responseBytes = unpack( 'C*', $response );
+    if ( scalar @responseBytes != 1 || $responseBytes[0] != 0x16 ) {
+        print "Invalid Response: ", serialize($response), "\n";
+        exit 1;
+    }
 }
 
 sub doSecureMode {
@@ -600,11 +607,16 @@ sub doSecureMode {
         exit 1;
     }
 
-    if ( !( $response = readPacket($fd) ) ) {
+    if ( !( $response = readPacket($fd, 2.0) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
-    print "Response: ", serialize($response), "\n";
+
+    my @responseBytes = unpack( 'C*', $response );
+    if ( scalar @responseBytes != 1 || $responseBytes[0] != 0x18 ) {
+        print "Invalid Response: ", serialize($response), "\n";
+        exit 1;
+    }
 }
 
 sub doOpenMulti {
@@ -615,13 +627,17 @@ sub doOpenMulti {
         print "Failed openMulti\n";
         exit 1;
     }
-    print "openMulti send ok\n";
 
-    if ( !( $response = readPacket($fd) ) ) {
+    if ( !( $response = readPacket($fd, 2.0) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
-    print "Response: ", serialize($response), "\n";
+
+    my @responseBytes = unpack( 'C*', $response );
+    if ( scalar @responseBytes != 2 || $responseBytes[0] != 0x1c || $responseBytes[1] != 0 ) {
+        print "Invalid Response: ", serialize($response), "\n";
+        exit 1;
+    }
 }
 
 sub doReset2 {
@@ -632,13 +648,17 @@ sub doReset2 {
         print "Failed doReset\n";
         exit 1;
     }
-    print "doReset send ok\n";
 
-    if ( !( $response = readPacket($fd) ) ) {
+    if ( !( $response = readPacket($fd, 2.0) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
-    print "Response: ", serialize($response), "\n";
+
+    my @responseBytes = unpack( 'C*', $response );
+    if ( scalar @responseBytes != 1 || $responseBytes[0] != 0x0c ) {
+        print "Invalid Response: ", serialize($response), "\n";
+        exit 1;
+    }
 }
 
 ###
@@ -665,7 +685,7 @@ sub doStage1 {
 
     doRequestParam($fd);
 
-    print "Uploding file...\n";
+    print "Uploading file to QDLOAD...\n";
     exit 1 if !defined( uploadFile( $fd, 0x2a000000, "hex.bin" ) );
 
     print "Executing file...\n";
@@ -691,6 +711,7 @@ sub doStage2 {
     #closeFlush($fd);
     doSecureMode($fd);
     doOpenMulti($fd);
+    print "Uploading file...\n";
     uploadFile2( $fd, 0x0, "hex2.bin" );
     doCloseFlush($fd);
     doReset2($fd);
