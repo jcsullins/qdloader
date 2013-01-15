@@ -96,9 +96,10 @@ sub writeChunk {
 }
 
 sub writeChunk2 {
-    my $fd      = shift;
-    my $address = shift;
-    my $chunk   = shift;
+    my $fd             = shift;
+    my $address        = shift;
+    my $chunk          = shift;
+    my $sentPacketsRef = shift;
 
     my $length = length($chunk);
     my $response;
@@ -116,17 +117,25 @@ sub writeChunk2 {
         print "Failed to send chunk.\n";
         return undef;
     }
-    if ( !( $response = readPacket( $fd, 0.001 ) ) ) {
-        return 1;
-    }
+    $sentPacketsRef->{ sprintf( "%0.8x", $address ) } = 1;
 
-    my @responseBytes = unpack( 'C*', $response );
-    if ( $responseBytes[0] != 8 ) {
-        print "Invalid response code\n";
-        exit 1;
-    }
-    else {
-        print "Got response: ", serialize($response), "\n";
+    while ( $response = readPacket( $fd, 0.0001 ) ) {
+        my @responseBytes = unpack( 'C*', $response );
+        if ( scalar @responseBytes != 5 || $responseBytes[0] != 8 ) {
+            print "Invalid Response: ", serialize($response), "\n";
+            exit 1;
+        }
+
+        my $ackpacket;
+        $ackpacket = sprintf(
+            '%.2x%.2x%.2x%.2x',
+            $responseBytes[4], $responseBytes[3],
+            $responseBytes[2], $responseBytes[1]
+        );
+
+        delete $sentPacketsRef->{$ackpacket};
+        print "Response: ACK 0x", $ackpacket, " (outstanding: ",
+          scalar keys %{$sentPacketsRef}, ")\n";
     }
     return 1;
 }
@@ -153,9 +162,9 @@ sub uploadFile {
           " bytes left.\n";
 
         if ( !writeChunk( $fd, $address, $chunk ) ) {
-			print "uploadFile failed.\n";
-			exit 1;
-		}
+            print "uploadFile failed.\n";
+            exit 1;
+        }
 
         $address += length($chunk);
         $data = $restOfData;
@@ -168,6 +177,8 @@ sub uploadFile2 {
     my $address  = shift;
     my $filename = shift;
     my $response;
+
+    my %sentPackets = ();
 
     local $/ = undef;
 
@@ -185,16 +196,44 @@ sub uploadFile2 {
           sprintf( '%.8x', $address ), "; ", length($restOfData),
           " bytes left.\n";
 
-        return undef if ( !writeChunk2( $fd, $address, $chunk ) );
+        return undef
+          if ( !writeChunk2( $fd, $address, $chunk, \%sentPackets ) );
 
         $address += length($chunk);
         $data = $restOfData;
 
         #select(undef, undef, undef, 0.1);
     }
-    while ( $response = readPacket( $fd, 2 ) ) {
-        print "Got response: ", serialize($response), "\n";
+
+    my $numout = scalar keys %sentPackets;
+
+    while ( $numout > 0 ) {
+        if ( !( $response = readPacket( $fd, 5.0 ) ) ) {
+            print "Failed to receive ACK for ", $numout, " packets\n";
+            foreach my $packet ( keys %sentPackets ) {
+                print "Outstanding: 0x", $packet, "\n";
+            }
+            exit 1;
+        }
+
+        my @responseBytes = unpack( 'C*', $response );
+        if ( scalar @responseBytes != 5 || $responseBytes[0] != 8 ) {
+            print "Invalid Response: ", serialize($response), "\n";
+            exit 1;
+        }
+
+        my $ackpacket;
+        $ackpacket = sprintf(
+            '%.2x%.2x%.2x%.2x',
+            $responseBytes[4], $responseBytes[3],
+            $responseBytes[2], $responseBytes[1]
+        );
+
+        delete $sentPackets{$ackpacket};
+        $numout = scalar keys %sentPackets;
+        print "Response: ACK 0x", $ackpacket, " (outstanding: ", $numout, ")\n";
     }
+
     return 1;
 }
 
@@ -586,7 +625,7 @@ sub doCloseFlush {
         exit 1;
     }
 
-    if ( !( $response = readPacket($fd, 2.0) ) ) {
+    if ( !( $response = readPacket( $fd, 2.0 ) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
@@ -607,7 +646,7 @@ sub doSecureMode {
         exit 1;
     }
 
-    if ( !( $response = readPacket($fd, 2.0) ) ) {
+    if ( !( $response = readPacket( $fd, 2.0 ) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
@@ -628,13 +667,16 @@ sub doOpenMulti {
         exit 1;
     }
 
-    if ( !( $response = readPacket($fd, 2.0) ) ) {
+    if ( !( $response = readPacket( $fd, 2.0 ) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
 
     my @responseBytes = unpack( 'C*', $response );
-    if ( scalar @responseBytes != 2 || $responseBytes[0] != 0x1c || $responseBytes[1] != 0 ) {
+    if (   scalar @responseBytes != 2
+        || $responseBytes[0] != 0x1c
+        || $responseBytes[1] != 0 )
+    {
         print "Invalid Response: ", serialize($response), "\n";
         exit 1;
     }
@@ -649,7 +691,7 @@ sub doReset2 {
         exit 1;
     }
 
-    if ( !( $response = readPacket($fd, 2.0) ) ) {
+    if ( !( $response = readPacket( $fd, 2.0 ) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
