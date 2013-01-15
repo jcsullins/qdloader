@@ -50,23 +50,6 @@ sub writeMagic {
         !sendPacket(
             $fd,
             deserialize(
-"01 51 43 4f 4d 20 68 69 67 68 20 73 70 65 65 64 20 70 72 6f 74 6f 63 6f 6c 20 68 6f 73 74 00 00 00 00 06 06 60 FF FF"
-            )
-        )
-      );
-
-    return 1;
-}
-
-
-sub writeMagic2 {
-    my $fd = shift;
-
-    return undef
-      if (
-        !sendPacket(
-            $fd,
-            deserialize(
 "01 51 43 4f 4d 20 66 61 73 74 20 64 6f 77 6e 6c 6f 61 64 20 70 72 6f 74 6f 63 6f 6c 20 68 6f 73 74 03 03 09"
             )
         )
@@ -99,18 +82,14 @@ sub writeChunk {
         print "Failed to send chunk.\n";
         return undef;
     }
-    if ( !( $response = readPacket($fd) ) ) {
+    if ( !( $response = readPacket( $fd, 2.0 ) ) ) {
         print "Failed to get response.\n";
         return undef;
     }
 
     my @responseBytes = unpack( 'C*', $response );
-    if ( scalar @responseBytes != 1 ) {
-        print "Invalid response 1\n";
-        exit 1;
-    }
-    if ( $responseBytes[0] != 2 ) {
-        print "Invalid response 2\n";
+    if ( scalar @responseBytes != 1 || $responseBytes[0] != 2 ) {
+        print "Invalid Response: ", serialize($response), "\n";
         exit 1;
     }
     return 1;
@@ -221,24 +200,14 @@ sub getSoftwareVersion {
     my $response;
     return undef if ( !sendPacket( $fd, deserialize("0c") ) );
 
-    print "sent 0c\n";
     return undef if ( !( $response = readPacket($fd) ) );
-    print "received something\n";
+    my @responseBytes = unpack( 'C*', $response );
+    if ( $responseBytes[0] != 0x0d ) {
+        print "Invalid Response: ", serialize($response), "\n";
+        return undef;
+    }
     return pack( 'C*',
         map { hex } split( /\s/, serialize( substr( $response, 2 ) ) ) );
-}
-
-sub doSerial {
-    my $fd = shift;
-    my $response;
-    return undef if ( !sendPacket( $fd, deserialize("07") ) );
-
-    print "Sent 0x16\n";
-    return undef if ( !( $response = readPacket($fd) ) );
-    print "got back something\n";
-    return pack( 'C*',
-        map { hex } split( /\s/, serialize( substr( $response, 2 ) ) ) );
-    print "Response", serialize($response);
 }
 
 sub setupTTY {
@@ -307,11 +276,16 @@ sub execute {
         print "Failed to send packed\n";
         return undef;
     }
-    if ( !( $response = readPacket($fd) ) ) {
-        print "Unable to receive response\n";
+    if ( !( $response = readPacket( $fd, 5.0 ) ) ) {
+        print "Failed to get response.\n";
         return undef;
     }
-    print "Response: ", serialize($response), "\n";
+
+    my @responseBytes = unpack( 'C*', $response );
+    if ( scalar @responseBytes != 1 || $responseBytes[0] != 2 ) {
+        print "Invalid Response: ", serialize($response), "\n";
+        exit 1;
+    }
     return 1;
 }
 
@@ -523,18 +497,6 @@ sub doMagic {
     my $response;
     print "Sending MAGIC...\n";
     writeMagic($fd);
-    if ( !( $response = readPacket($fd) ) ) {
-        print "Failed to read magic response.\n";
-        exit 1;
-    }
-    print "Got magic response: ", serialize($response), "\n";
-}
-
-sub doMagic2 {
-    my $fd = shift;
-    my $response;
-    print "Sending MAGIC2...\n";
-    writeMagic2($fd);
     while ( $response = readPacket( $fd, 2 ) ) {
         print "Got response: ", serialize($response), "\n";
     }
@@ -544,7 +506,7 @@ sub doSoftwareVersion {
     my $fd = shift;
     my $response;
     print "Requesting SoftwareVersion...\n";
-    print $fd my $swver = getSoftwareVersion($fd);
+    my $swver = getSoftwareVersion($fd);
     if ( !defined $swver ) {
         print "Failed to get software version\n";
         exit 1;
@@ -589,33 +551,23 @@ sub doReboot {
 sub doRequestParam {
     my $fd = shift;
     my $response;
-    print "Requesting Param...\n";
+    print "Requesting Params...\n";
     if ( !sendPacket( $fd, deserialize("07") ) ) {
         print "Failed requestParam\n";
         exit 1;
     }
-    print "requestParam send ok\n";
 
     if ( !( $response = readPacket($fd) ) ) {
         print "Failed to read response.\n";
         exit 1;
     }
-    print "Param: ", serialize($response), "\n";
-}
 
-sub doBootloader {
-    my $fd = shift;
-    my $response;
-    print "Requesting Bootloader..........\n";
-    if ( !sendPacket( $fd, deserialize("02") ) ) {
-        print "Failed requestBootloader\n";
+    my @responseBytes = unpack( 'C*', $response );
+    if ( $responseBytes[0] != 8 ) {
+        print "Invalid Response: ", serialize($response), "\n";
         exit 1;
     }
-    if ( !( $response = readPacket($fd) ) ) {
-        print "Failed to read response.\n";
-        exit 1;
-    }
-    print "Response: ", serialize($response), "\n";
+    print "Params: ", serialize( substr( $response, 1 ) ), "\n";
 }
 
 #####
@@ -647,7 +599,6 @@ sub doSecureMode {
         print "Failed secureMode\n";
         exit 1;
     }
-    print "secureMode send ok\n";
 
     if ( !( $response = readPacket($fd) ) ) {
         print "Failed to read response.\n";
@@ -706,18 +657,16 @@ sub doStage1 {
 
     print "Using TTY: $tty\n";
 
-    doMagic($fd);
+    while ( $response = readPacket( $fd, 0.1 ) ) {
+        print "Ignoring response: ", serialize($response), "\n";
+    }
 
     doSoftwareVersion($fd);
 
-    doBootloader($fd);
-
     doRequestParam($fd);
 
-    doSerial($fd);
-
     print "Uploding file...\n";
-    uploadFile( $fd, 0x2a000000, "hex.bin" );
+    exit 1 if !defined( uploadFile( $fd, 0x2a000000, "hex.bin" ) );
 
     print "Executing file...\n";
     execute( $fd, 0x2a000000 );
@@ -737,7 +686,7 @@ sub doStage2 {
 
     print "Using TTY: $tty\n";
 
-    doMagic2($fd);
+    doMagic($fd);
 
     #closeFlush($fd);
     doSecureMode($fd);
