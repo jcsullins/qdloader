@@ -539,8 +539,50 @@ sub doMagic {
     my $response;
     print "Sending MAGIC...\n";
     writeMagic($fd);
+    my $haveGoodResponse    = 0;
+    my $haveErrorResponse   = 0;
+    my $haveUnknownResponse = 0;
     while ( $response = readPacket( $fd, 2 ) ) {
-        print "Got response: ", serialize($response), "\n";
+        my @responseBytes = unpack( 'C*', $response );
+        if ( scalar @responseBytes > 35 && $responseBytes[0] == 0x02 ) {
+            my $magicCodeCheck = "QCOM fast download protocol targ";
+            my $magicCodeRecvd = substr( $response, 1, 32 );
+            if ( $magicCodeRecvd eq $magicCodeCheck ) {
+                $haveGoodResponse = 1;
+            }
+        }
+        elsif ( $responseBytes[0] == 0x0e ) {
+
+            # msg
+            my $msg = pack( 'C*',
+                map { hex }
+                  split( /\s/, serialize( substr( $response, 1 ) ) ) );
+            $msg =~ tr/\n/ /;
+            $msg =~ tr/\r/ /;
+            print "MSG: ", $msg, "\n";
+        }
+        elsif ( $responseBytes[0] == 0x0d ) {
+
+            # error
+            $haveErrorResponse = 1;
+            my $msg = pack( 'C*',
+                map { hex }
+                  split( /\s/, serialize( substr( $response, 5 ) ) ) );
+            $msg =~ tr/\n//d;
+            $msg =~ tr/\r//d;
+            print "ERROR: ", $msg, "\n";
+        }
+        else {
+            $haveUnknownResponse = 1;
+            print "Response: ", serialize($response), "\n";
+        }
+    }
+    if (   $haveGoodResponse != 1
+        || $haveErrorResponse == 1
+        || $haveUnknownResponse == 1 )
+    {
+        print "Invalid MAGIC response.\n";
+        exit 1;
     }
 }
 
