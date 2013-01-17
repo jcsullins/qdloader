@@ -721,18 +721,48 @@ sub doOpenMulti {
         print "Failed openMulti\n";
         exit 1;
     }
+    my $haveGoodResponse    = 0;
+    my $haveErrorResponse   = 0;
+    my $haveUnknownResponse = 0;
+    while ( $response = readPacket( $fd, 2 ) ) {
+        my @responseBytes = unpack( 'C*', $response );
+        if (   scalar @responseBytes == 2
+            && $responseBytes[0] == 0x1c
+            && $responseBytes[1] == 0 )
+        {
+            $haveGoodResponse = 1;
+        }
+        elsif ( $responseBytes[0] == 0x0e ) {
 
-    if ( !( $response = readPacket( $fd, 2.0 ) ) ) {
-        print "Failed to read response.\n";
-        exit 1;
+            # msg
+            my $msg = pack( 'C*',
+                map { hex }
+                  split( /\s/, serialize( substr( $response, 1 ) ) ) );
+            $msg =~ tr/\n/ /;
+            $msg =~ tr/\r/ /;
+            print "MSG: ", $msg, "\n";
+        }
+        elsif ( $responseBytes[0] == 0x0d ) {
+
+            # error
+            $haveErrorResponse = 1;
+            my $msg = pack( 'C*',
+                map { hex }
+                  split( /\s/, serialize( substr( $response, 5 ) ) ) );
+            $msg =~ tr/\n//d;
+            $msg =~ tr/\r//d;
+            print "ERROR: ", $msg, "\n";
+        }
+        else {
+            $haveUnknownResponse = 1;
+            print "Response: ", serialize($response), "\n";
+        }
     }
-
-    my @responseBytes = unpack( 'C*', $response );
-    if (   scalar @responseBytes != 2
-        || $responseBytes[0] != 0x1c
-        || $responseBytes[1] != 0 )
+    if (   $haveGoodResponse != 1
+        || $haveErrorResponse == 1
+        || $haveUnknownResponse == 1 )
     {
-        print "Invalid Response: ", serialize($response), "\n";
+        print "Invalid openMulti response.\n";
         exit 1;
     }
 }
