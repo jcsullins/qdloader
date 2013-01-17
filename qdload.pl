@@ -119,7 +119,20 @@ sub writeChunk2 {
     }
     $sentPacketsRef->{ sprintf( "%0.8x", $address ) } = 1;
 
-    while ( $response = readPacket( $fd, 0.0001 ) ) {
+    my $outstanding = scalar keys %{$sentPacketsRef};
+    my $acktimeout;
+
+    if ( $outstanding > 8 ) {
+        $acktimeout = 2.0;
+    }
+    elsif ( $outstanding > 4 ) {
+        $acktimeout = 0.25;
+    }
+    else {
+        $acktimeout = 0.01;
+    }
+
+    while ( $response = readPacket( $fd, $acktimeout ) ) {
         my @responseBytes = unpack( 'C*', $response );
         if ( scalar @responseBytes != 5 || $responseBytes[0] != 8 ) {
             print "Invalid Response: ", serialize($response), "\n";
