@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-
+use Getopt::Long;
 use Fcntl;
 
 $| = 1;
@@ -793,6 +793,7 @@ sub doReset2 {
 ###
 
 sub doStage1 {
+    my $fname = shift;
     my $retval;
     my $response;
     my ( $fd, $tty ) = setupTTY();
@@ -801,8 +802,6 @@ sub doStage1 {
         print "Failed to find/open TTY.\n";
         exit 1;
     }
-
-    print "Using TTY: $tty\n";
 
     while ( $response = readPacket( $fd, 0.1 ) ) {
         print "Ignoring response: ", serialize($response), "\n";
@@ -812,16 +811,17 @@ sub doStage1 {
 
     doRequestParam($fd);
 
-    print "Uploading file to QDLOAD...\n";
-    exit 1 if !defined( uploadFile( $fd, 0x2a000000, "hex.bin" ) );
+    print "Uploading file '", $fname, "' to QDLOAD...\n";
+    exit 1 if !defined( uploadFile( $fd, 0x2a000000, $fname ) );
 
     print "Executing file...\n";
     execute( $fd, 0x2a000000 );
     close($fd);
-    sleep(1);
 }
 
 sub doStage2 {
+    my $laddr  = shift;
+    my $lfname = shift;
     my $retval;
     my $response;
     my ( $fd, $tty ) = setupTTY();
@@ -831,20 +831,145 @@ sub doStage2 {
         exit 1;
     }
 
-    print "Using TTY: $tty\n";
-
     doMagic($fd);
 
     #closeFlush($fd);
     doSecureMode($fd);
     doOpenMulti($fd);
-    print "Uploading file...\n";
-    uploadFile2( $fd, 0x0, "hex2.bin" );
+    print "Uploading file '", $lfname, "'...\n";
+    uploadFile2( $fd, $laddr, $lfname );
     doCloseFlush($fd);
-    doReset2($fd);
-
+    ###doReset2($fd);
+    close($fd);
 }
 
-doStage1();
-doStage2();
+sub doResetStage {
+    my $retval;
+    my $response;
+    my ( $fd, $tty ) = setupTTY();
+
+    if ( !defined $fd ) {
+        print "Failed to find/open TTY.\n";
+        exit 1;
+    }
+
+    doReset2($fd);
+
+    close($fd);
+}
+
+sub doTestCmd {
+    my $cmd = shift;
+    my $retval;
+    my $response;
+    my ( $fd, $tty ) = setupTTY();
+
+    if ( !defined $fd ) {
+        print "Failed to find/open TTY.\n";
+        exit 1;
+    }
+
+    doMagic($fd);
+
+    print "Sending cmd '", $cmd, "'\n";
+    if ( !sendPacket( $fd, deserialize($cmd) ) ) {
+        print "Failed send\n";
+        exit 1;
+    }
+
+    while ( $response = readPacket( $fd, 2 ) ) {
+        my @responseBytes = unpack( 'C*', $response );
+        if ( $responseBytes[0] == 0x0e ) {
+
+            # msg
+            my $msg = pack( 'C*',
+                map { hex }
+                  split( /\s/, serialize( substr( $response, 1 ) ) ) );
+            $msg =~ tr/\n/ /;
+            $msg =~ tr/\r/ /;
+            print "MSG: ", $msg, "\n";
+        }
+        elsif ( $responseBytes[0] == 0x0d ) {
+
+            # error
+            my $msg = pack( 'C*',
+                map { hex }
+                  split( /\s/, serialize( substr( $response, 5 ) ) ) );
+            $msg =~ tr/\n//d;
+            $msg =~ tr/\r//d;
+            print "ERROR: ", $msg, "\n";
+        }
+        else {
+            print "Response: ", serialize($response), "\n";
+        }
+    }
+
+    close($fd);
+}
+
+sub doUsage {
+    print "Usage: qdload --pfile <stage1_bin>\n";
+    print "            | --lfile <stage2_file>\n";
+    print "            | --lfile <stage2_file> --laddr <stage2_load_addr>\n";
+    print "            | --lreset\n";
+}
+
+###
+### main
+###
+
+my $opts_result;
+my $opts_pfile;
+my $opts_lfile;
+my $opts_laddr;
+my $opts_lreset;
+my $opts_testcmd;
+
+$opts_result = GetOptions(
+    "pfile=s"   => \$opts_pfile,
+    "lfile=s"   => \$opts_lfile,
+    "laddr=o"   => \$opts_laddr,
+    "testcmd=s" => \$opts_testcmd,
+    "lreset"    => \$opts_lreset
+);
+
+my $num_remaining_args = $#ARGV + 1;
+
+if ( $num_remaining_args > 0 ) {
+    doUsage();
+    exit(1);
+}
+
+if (   !defined($opts_pfile)
+    && !defined($opts_lfile)
+    && !defined($opts_lreset)
+    && !defined($opts_testcmd) )
+{
+    doUsage();
+    exit(1);
+}
+
+if ( defined($opts_testcmd) ) {
+    doTestCmd($opts_testcmd);
+    exit(0);
+}
+
+if ( defined($opts_pfile) ) {
+    doStage1($opts_pfile);
+    sleep(2);
+}
+
+if ( defined($opts_lfile) ) {
+    my $addr = 0;
+    if ( defined($opts_laddr) ) {
+        $addr = $opts_laddr;
+    }
+    doStage2( $addr, $opts_lfile );
+}
+
+if ( defined($opts_lreset) ) {
+    doResetStage();
+}
+
+exit 0;
 
