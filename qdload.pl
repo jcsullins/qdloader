@@ -329,16 +329,19 @@ sub execute {
 
     if ( !sendPacket( $fd, deserialize( "05 " . serial32($address) ) ) ) {
         print "Failed to send packed\n";
-        return undef;
+        print "execute failed\n";
+        exit 1;
     }
     if ( !( $response = readPacket( $fd, 5.0 ) ) ) {
         print "Failed to get response.\n";
-        return undef;
+        print "execute failed\n";
+        exit 1;
     }
 
     my @responseBytes = unpack( 'C*', $response );
     if ( scalar @responseBytes != 1 || $responseBytes[0] != 2 ) {
         print "Invalid Response: ", serialize($response), "\n";
+        print "execute failed\n";
         exit 1;
     }
     return 1;
